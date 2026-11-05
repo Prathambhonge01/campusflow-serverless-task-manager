@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   deploy:
+    name: Provision Infrastructure & Deploy Worker
     runs-on: ubuntu-latest
 
     env:
@@ -23,6 +24,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Verify GitHub Secrets Configuration
+        run: |
+          if [ -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ] || [ -z "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" ]; then
+            echo "::error::Missing GitHub Actions Secrets!"
+            echo "Please configure CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID under:"
+            echo "GitHub Repo -> Settings -> Secrets and variables -> Actions"
+            exit 1
+          fi
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -30,19 +40,25 @@ jobs:
 
       - name: Terraform Init
         working-directory: terraform
-        run: terraform init
+        run: terraform init -input=false
 
       - name: Terraform Validate
         working-directory: terraform
         run: terraform validate
 
+      - name: Sync Existing KV Namespace State (if already created)
+        working-directory: terraform
+        continue-on-error: true
+        run: |
+          terraform import -input=false cloudflare_workers_kv_namespace.tasks ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/a343084204c04bafa761e75727485e69 || true
+
       - name: Terraform Plan
         working-directory: terraform
-        run: terraform plan
+        run: terraform plan -input=false
 
       - name: Terraform Apply
         working-directory: terraform
-        run: terraform apply -auto-approve
+        run: terraform apply -input=false -auto-approve
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
