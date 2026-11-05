@@ -1,4 +1,5 @@
 name = "student-task-manager"
+account_id = "465079c1a5a8482091e57a507c20e1e1"
 main = "application/worker.js"
 compatibility_date = "2024-10-01"
 
@@ -8,5 +9,4 @@ binding = "ASSETS"
 
 [[kv_namespaces]]
 binding = "TASKS_KV"
-id = "replace-with-terraform-output"
-
+id = "a343084204c04bafa761e75727485e69"
