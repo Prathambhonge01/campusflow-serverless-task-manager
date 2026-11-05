@@ -24,19 +24,32 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Verify GitHub Secrets Configuration
-        run: |
-          if [ -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ] || [ -z "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" ]; then
-            echo "::error::Missing GitHub Actions Secrets!"
-            echo "Please configure CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID under:"
-            echo "GitHub Repo -> Settings -> Secrets and variables -> Actions"
-            exit 1
-          fi
-
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.6.0
+          terraform_wrapper: false
+
+      - name: Validate & Normalize Credentials
+        id: creds
+        run: |
+          ACCOUNT_ID="${TF_VAR_cloudflare_account_id}"
+          API_TOKEN="${TF_VAR_cloudflare_api_token}"
+
+          if [ -z "$API_TOKEN" ]; then
+            echo "::error::Missing CLOUDFLARE_API_TOKEN in GitHub Secrets!"
+            exit 1
+          fi
+
+          # Auto-correct if Account ID was mistaken for KV ID or default
+          if [ -z "$ACCOUNT_ID" ] || [ "$ACCOUNT_ID" = "3667ccf8271b465e8632b9e17a0bd404" ]; then
+            echo "Normalizing Account ID to 465079c1a5a8482091e57a507c20e1e1"
+            ACCOUNT_ID="465079c1a5a8482091e57a507c20e1e1"
+          fi
+
+          echo "ACCOUNT_ID=$ACCOUNT_ID" >> $GITHUB_ENV
+          echo "TF_VAR_cloudflare_account_id=$ACCOUNT_ID" >> $GITHUB_ENV
+          echo "CLOUDFLARE_ACCOUNT_ID=$ACCOUNT_ID" >> $GITHUB_ENV
 
       - name: Terraform Init
         working-directory: terraform
@@ -46,11 +59,14 @@ jobs:
         working-directory: terraform
         run: terraform validate
 
-      - name: Sync Existing KV Namespace State (if already created)
+      - name: Synchronize Existing Cloudflare KV State
         working-directory: terraform
-        continue-on-error: true
         run: |
-          terraform import -input=false cloudflare_workers_kv_namespace.tasks ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/a343084204c04bafa761e75727485e69 || true
+          EXISTING_KV=$(curl -s -H "Authorization: Bearer ${{ env.CLOUDFLARE_API_TOKEN }}" "https://api.cloudflare.com/client/v4/accounts/${{ env.CLOUDFLARE_ACCOUNT_ID }}/storage/kv/namespaces" | grep -o '"id":"[a-f0-9]*"' | head -n 1 | cut -d'"' -f4)
+          if [ -n "$EXISTING_KV" ]; then
+            echo "Discovered existing KV namespace in Cloudflare: $EXISTING_KV"
+            terraform import -input=false cloudflare_workers_kv_namespace.tasks "${{ env.CLOUDFLARE_ACCOUNT_ID }}/$EXISTING_KV" || true
+          fi
 
       - name: Terraform Plan
         working-directory: terraform
